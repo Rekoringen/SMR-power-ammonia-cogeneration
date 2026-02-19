@@ -1,0 +1,253 @@
+import math
+
+# Define input and output material streams
+Feed = ims1
+vapor_out = oms1
+O2_out = oms4
+O2_in = ims5
+Energy_in = ies1
+Heat_flow = oes1
+
+# variables for input stream
+T = Feed.GetTemperature()
+P = Feed.GetPressure() #cathode pressure
+P_anode = O2_in.GetPressure() #Anode pressure
+moleflow_Feed = Feed.GetMolarFlow()
+Feed_massflow = Feed.GetMassFlow()
+In_moleflow_O2 = O2_in.GetMolarFlow()
+Feed_density = Feed.GetPhase("Vapor").Properties.density # kg/m3
+comp_feed = Feed.GetOverallComposition()
+H2O_frac = comp_feed[0] #The position of the compound in list of the material stream
+H2_frac = comp_feed[2]
+
+# Partial pressures and molar flows
+p_H2 = P*H2_frac
+p_H2O = P*H2O_frac
+p_O2 = P
+in_molflow_H2O = moleflow_Feed*H2O_frac
+in_molflow_H2 = moleflow_Feed*H2_frac
+
+# General constants
+P0 = 101325 # [Pa]
+H_std = -241.8264 # kJ/mol
+M_steam = 18.01528/1000 # kg/mol
+
+# Electrochemical constants
+B_ohm = 7.8247e11 # S K/m2
+E_act_ohm = 8.0022e4 # J/mol
+alpha_H2 = 0.77251
+gamma_H2 = 8.99769e6 # A*m2/K
+a = -0.0538348
+b = 0.48814
+E_act_H2 = 1.20051e5 # J/mol
+alpha_O2 = 0.83035
+gamma_O2 = 2.43410e8 # A m2/K
+m = 0.18247
+E_act_O2 = 1.48142e5 # J/mol
+
+F = 96485
+R = 8.314 # J/mol-k
+z = 2
+
+# Electrolysis cell constants
+t_c = 350e-6 # cathode thickness m
+t_a = 40e-6 # anode thickness m
+t_e = 10e-6 # um
+pore_c = 0.31 # Cathode porsity
+pore_a = 0.40 # anode porsity
+tortuosity = 2.52
+r_pore = 1.75e-6
+P_drop = 0.04e5 # Pressure drop over stack
+
+
+#Shomate equations to define properties of cell reaction
+
+def Cp_schomate(T, a, b, c, d, e, f, g, h):
+    t = T/1000
+    Cp = a + b*t + c*math.pow(t,2) + d*math.pow(t,3) - e/math.pow(t,2) # J/mol*K
+    return Cp
+
+def H_shomate(T, a, b, c, d, e, f, g, h):
+    t = T / 1000
+    H = a*t + b*math.pow(t,2)/2 + c*math.pow(t,3)/3 + d*math.pow(t,4)/4 - e/t + f - h  # kJ/mol
+    return H
+
+def S_shomate(T, a, b, c, d, e, f, g, h):
+    t = T / 1000
+    S = a*math.log(t) + b*t + c*math.pow(t,2)/2 + d*math.pow(t,3)/3 - e/(2*math.pow(t,2)) + g  # J/mol*K
+    return S
+
+# -----------------------------------------------------------
+# Temperature ranges and coefficients for schomate equation
+# -----------------------------------------------------------
+coeffs = {
+    "H2O": {
+        (500, 1700): [30.09200, 6.832514, 6.793435, -2.534480, 0.082139, -250.8810, 223.3967, -241.8264],
+    },
+    "H2": {
+        (298, 1000): [33.066178, -11.363417, 11.432816, -2.772874, -0.158558, -9.980797, 172.707974, 0.0],
+        (1000, 2500): [18.563083, 12.257357, -2.859786, 0.268238, 1.977990, -1.147438, 156.288133, 0.0],
+    },
+    "O2": {
+        (100, 700): [31.32234, -20.23531, 57.86644, -36.50624, -0.007374, -8.903471, 246.7945, 0.0],
+        (700, 2000): [30.03235, 8.772972, -3.988133, 0.788313, -0.741599, -11.32468, 236.1663, 0.0],
+    }
+}
+
+
+def get_HSCp(T, species):
+    for (Tmin, Tmax), params in coeffs[species].items():
+        if Tmin <= T <= Tmax:
+            return H_shomate(T, *params), S_shomate(T, *params), Cp_schomate(T, *params)
+    (Tmin, Tmax), params = list(coeffs[species].items())[-1]
+    return H_shomate(T, *params), S_shomate(T, *params), Cp_schomate(T, *params)
+
+H_H2O, S_H2O, Cp_H2O = get_HSCp(T, "H2O") 
+H_H2,  S_H2, Cp_H2  = get_HSCp(T, "H2")
+H_O2,  S_O2, Cp_O2  = get_HSCp(T, "O2")
+
+# -----------------------------------------------------------
+# Compute reaction properties
+# H2O(g) → H2(g) + ½O2(g)
+# -----------------------------------------------------------
+
+H_r = (H_H2 + (1/2)*H_O2) - H_H2O - H_std #[KJ/mol]
+S_r = (S_H2 + (1/2)*S_O2) - S_H2O  #[J/mol-K]
+Gibbs_r = H_r - S_r*T/1000 #[kJ/mol]
+
+V_th = H_r*1000/(F*z)
+
+# --- 1. Voltage Calculations ---
+# Ohmic
+
+R_ohm = (T/B_ohm)*math.exp(E_act_ohm/(R*T))
+V_ohmic = -j * R_ohm
+
+# Defining effectiv diffusion coefficient from source: https://www.mdpi.com/2227-7390/11/2/366
+def get_Deff(T, P, species):
+
+    # P in Pa, T in K
+
+    if species == "H2O":
+
+        porosity = 0.31
+        Mi, Mj = 18.015, 2.016  # g/mol for Fuller
+        Vi, Vj = 6.12, 13.1         # Fuller volumes
+
+    elif species == "H2":
+
+        porosity = 0.31
+        Mi, Mj = 2.016, 18.015  # g/mol for Fuller
+        Vi, Vj = 6.12, 13.1         # Fuller volumes
+
+    else:
+
+        porosity = 0.40
+        Mi, Mj = 31.998, 31.998 # g/mol for Fuller
+        Vi, Vj = 16.3, 16.3
+
+
+    # 3. Fuller Equation
+
+    M_term = math.sqrt(1/Mi + 1/Mj)
+
+    V_term = math.pow(math.pow(Vi, 1/3) + math.pow(Vj, 1/3), 2)
+
+    D_bin = (3.1976e-4 * math.pow(T, 1.75) * M_term) / (P * V_term)
+
+
+    # Knudsen Diffusion (Function of pore radius) Mi in kg/mol
+
+
+    D_kn = (2/3) * r_pore * math.sqrt((8 * R * T) / (math.pi * Mi/1000))
+
+    
+
+    # Effective Diffusion (Adjusted for electrode Porosity/Tortuosity)
+
+    D_eff = (porosity / tortuosity) * (1.0 / (1.0/D_bin + 1.0/D_kn))
+
+    return D_eff
+
+
+
+# Constants for diffusion
+D_H2O_eff = get_Deff(T, P, "H2O")
+D_H2_eff = get_Deff(T, P, "H2")
+D_O2_eff = get_Deff(T, P, "O2")
+
+# Cathode TPB Pressures (H2 is produced, H2O is consumed)
+p_H2_TPB = p_H2 + (R * T * t_c / (z * F * D_H2_eff)) * abs(j)
+p_H2O_TPB = p_H2O - (R * T * t_c / (z * F * D_H2O_eff)) * abs(j)
+
+# Anode TPB Pressure (O2 is produced)
+p_O2_TPB = p_O2 + (R * T * t_a / (4 * F * D_O2_eff)) * abs(j)
+
+
+# Exchange Current Densities
+j0_H2 = gamma_H2*T*math.pow(p_H2_TPB/P0, a)*math.pow(p_H2O_TPB/P0, b)*math.exp(-E_act_H2/(R*T))
+j0_O2 = gamma_O2*T*math.pow((p_O2_TPB/P0),m)*math.exp(-E_act_O2/(R*T))
+
+# Nernst potential
+V_rev = (1000*Gibbs_r)/(z*F) + (R*T/(z*F))*math.log((p_H2_TPB/p_H2O_TPB)*math.pow(p_O2_TPB/P0,0.5))
+
+# --- 3. Newton-Raphson Solver for Activation Overpotential ---
+def solve_eta(j_target, j0, alpha, T):
+    # Initial guess for eta
+    eta = -0.01 
+    coeff = (z * F) / (R * T)
+    
+    for i in range(100):
+        # Butler-Volmer: f(eta) = j0 * (exp(a*c*eta) - exp(-(1-a)*c*eta)) - j_target
+        term1 = math.exp(alpha * coeff * eta)
+        term2 = math.exp(-(1 - alpha) * coeff * eta)
+        f = j0 * (term1 - term2) - j_target
+        
+        # Derivative: f'(eta) = j0 * coeff * (alpha*term1 + (1-alpha)*term2)
+        df = j0 * coeff * (alpha * term1 + (1 - alpha) * term2)
+        
+        eta_new = eta - f / df
+        if abs(eta_new - eta) < 1e-6:
+            return eta_new
+        eta = eta_new
+    return eta
+
+eta_act_H2 = solve_eta(j, j0_H2, alpha_H2, T)
+eta_act_O2 = solve_eta(j, j0_O2, alpha_O2, T)
+
+V_op = V_rev - j*R_ohm - eta_act_H2 - eta_act_O2
+
+
+
+# molar balance
+I_cell = abs(j)*A # current per cell / A in cm2
+Target_H2_prod = X_su*in_molflow_H2O
+I_tot = (F*z)*Target_H2_prod
+N_cells = I_tot/I_cell     # Total number of cells required for the production
+O2_prod = Target_H2_prod/2
+Power = I_tot*V_op/1000 # kW
+
+
+Q = I_cell*A*N_cells*(V_op - V_th)/1000 # Waste heat in KW that needs to be added/removed
+Cp_H2O_unit = Cp_H2O/(M_steam*1000) # Specific heat capacity in KJ/Kg*K
+
+# Set output material streams H2
+total_out_H2 = Target_H2_prod + in_molflow_H2
+total_out_H2O = (1-X_su)*in_molflow_H2O
+totflow_O2 = O2_prod + In_moleflow_O2
+
+# Set output hydrogen and steam stream
+vapor_out.SetPressure(P - P_drop)
+vapor_out.SetTemperature(T)
+vapor_out.SetOverallCompoundMolarFlow("Hydrogen", total_out_H2)
+vapor_out.SetOverallCompoundMolarFlow("Water", total_out_H2O)
+    
+# Set output material streams O2
+M_enthalpy_O2 = H_O2/0.031998
+O2_out.SetPressure(P_anode - P_drop)
+O2_out.SetMassEnthalpy(M_enthalpy_O2)
+O2_out.SetOverallCompoundMolarFlow("Oxygen", totflow_O2)
+
+# Set energy streams
+Energy_in.SetEnergyFlow(Power)
+Heat_flow.SetEnergyFlow(Q)
