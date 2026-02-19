@@ -10,4 +10,5 @@ Techno-economic analysis of the system is basen on Chemical Plant
 
 The secondary steam loop model are taken from the TANDEM project which is based on the European SMR (E-SMR). Source: http://tandemproject.eu/wp-content/uploads/2024/07/D2_3_Modelica_models_description_for_the_tandem_library_V1-1.pdf
 
-The SOEC and ammonia synthesis reactor models were adopted from other sources.
+The SOEC model is adapted from: https://doi.org/10.1016/j.ijhydene.2025.02.335
+The ammonia synthesis reactor model is adopted from: https://doi.org/10.1016/j.cej.2023.144612
