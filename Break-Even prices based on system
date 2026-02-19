@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Feb 19 21:46:19 2026
+
+@author: 47456
+"""
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -48,7 +55,7 @@ electricity_prices = {
 ammonia_price = 600  # €/t
 
 # OPEX ammonia production (M€/y) from module costing technique
-opex_ammonia = np.array([113.8481, 113.8580, 113.8679, 113.8777, 113.8876])
+opex_ammonia = np.array([113.2742, 113.2771, 113.2800, 113.2828, 113.2857])
 
 # OPEX power production from INL adjusted to EUROS and 2025 values
 opex_power = np.array([34.5, 61.71, 91.8])   # Lower, median, upper €/MWh
@@ -57,50 +64,25 @@ opex_power = np.array([34.5, 61.71, 91.8])   # Lower, median, upper €/MWh
 ammonia_production = np.array([65700, 98550, 131400, 164250, 197100])  # t/y
 
 power_production = np.array([
-    2362864.1496,
-    2071334.1185,
-    1783022.4158,
-    1485099.6708,
-    1191180.1528
+    2386974.7893,
+    2112465.5137,
+    1837899.1201,
+    1564202.1186,
+    1289593.2810
 ])  # MWh/y From thermodynamic model
 
 cogen_split = np.array([2.38, 3.57, 4.76, 5.95, 7.14]) # (%) steam diversion from secondary reactor system
+a_prod_tdp = np.array([200, 300, 400, 500, 600])
 
 # -----------------------------
 # CALCULATIONS
 # -----------------------------
 
-records = []
-
-for country, elec_price in electricity_prices.items():
-    for i in range(len(ammonia_production)):
-        
-        revenue_ammonia = ammonia_production[i] * ammonia_price # €/y
-        revenue_power = power_production[i] * elec_price # €/y
-        
-        total_revenue = (revenue_ammonia + revenue_power)/1e6 # M€/y
-        
-        cost_ammonia = opex_ammonia[i] # M€/y
-        cost_power = (power_production[i] * opex_power)/1e6 # M€/y
-        
-        profit = total_revenue - (cost_ammonia + cost_power) #M€/y
-        
-        records.append([
-            country,
-            i+1,
-            elec_price,
-            profit,
-            cogen_split[i]
-        ])
-
-df_plot = pd.DataFrame(records,
-                       columns=["Country", "Scenario", "Electricity Price", "Profit (M€)", "Cogeneration split (%)"])
-
 break_even_prices = []
 
 for i in range(len(ammonia_production)):
     
-    numerator = opex_ammonia[i] - ammonia_production[i] * ammonia_price
+    numerator = opex_ammonia[i]*1e6 - (ammonia_production[i] * ammonia_price) #
     denominator = power_production[i]
     
     p_be = numerator / denominator + opex_power
@@ -110,10 +92,12 @@ for i in range(len(ammonia_production)):
     break_even_prices.append(p_be)
 
 plt.figure(figsize=(7,5))
-plt.plot(cogen_split, break_even_prices, marker="o")
-plt.text(2.3, -50, 'NH3 selling price: 600\u20AC/t', fontsize = 10, fontweight='bold', bbox=dict(facecolor='white', alpha=1))
-plt.xlabel("Steam diversion (%)", fontsize=10, fontweight='bold')
+plt.plot(a_prod_tdp, break_even_prices, marker="o")
+#plt.text(2.3, -50, 'NH3 selling price: 600\u20AC/t', fontsize = 10, fontweight='bold', bbox=dict(facecolor='white', alpha=1))
+plt.xlabel("Ammonia production tdp", fontsize=10, fontweight='bold')
 plt.ylabel("Break-even Electricity Price (\u20AC/MWh)", fontsize=10, fontweight='bold')
 #plt.title("Break-even Electricity Price at different SMR OPEX scenarios for 500 tdp")
 plt.legend(['Lower','Median','Upper'],loc="upper right")
+plt.xticks(range(200,700,100))
+plt.xlim(195,605)
 plt.show()
