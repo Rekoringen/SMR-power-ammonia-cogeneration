@@ -1,0 +1,122 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+
+sns.set_style("whitegrid")
+
+# -----------------------------
+# INPUT DATA
+# -----------------------------
+
+# Electricity prices (€/MWh)
+electricity_prices = {
+    "AT": 114.50,
+    "BE": 105.16,
+    "BG": 119.04,
+    "HR": 121.89,
+    "CZ": 110.82,
+    "DK": 94.65,
+    "EE": 95.73,
+    "FI": 66.24,
+    "FR": 105.63,
+    "DE": 104.51,
+    "EL": 127.48,
+    "HU": 123.42,
+    "IE": 124.64,
+    "IT": 137.49,
+    "LV": 103.33,
+    "LT": 104.17,
+    "LU": 104.51,
+    "ME": 102.54,
+    "NO": 58.97,
+    "NL": 106.16,
+    "MK": 103.55,
+    "PL": 102.33,
+    "PT": 88.74,
+    "RO": 121.90,
+    "RS": 125.00,
+    "SK": 117.04,
+    "SI": 121.32,
+    "ES": 88.74,
+    "SE": 56.07,
+    "CH": 119.50,
+    "UK": 117.37,
+}
+
+# Ammonia price
+ammonia_price = 600  # €/t
+
+# OPEX ammonia production (M€/y)
+opex_ammonia = np.array([113.8481, 113.8580, 113.8679, 113.8777, 113.8876])
+
+# OPEX power production
+opex_power = np.array([34.5, 61.71, 91.8])   # Lower, median, upper €/MWh
+
+# Production scenarios
+ammonia_production = np.array([65700, 98550, 131400, 164250, 197100])  # t/y
+
+power_production = np.array([
+    2362864.1496,
+    2071334.1185,
+    1783022.4158,
+    1485099.6708,
+    1191180.1528
+])  # MWh/y
+
+cogen_split = np.array([2.38, 3.57, 4.76, 5.95, 7.14]) # %
+
+#--------------Scenario
+
+# Find best scenario for each country
+optimal_scenarios = []
+
+for country in electricity_prices.keys():
+    
+    profits = []
+    
+    for i in range(len(ammonia_production)):
+        
+        rev_nh3 = ammonia_production[i] * ammonia_price # €/y
+        rev_power = power_production[i] * electricity_prices[country] # €/y
+        
+        cost_nh3 = opex_ammonia[i]*1e6 # €/y
+        cost_power = power_production[i] * opex_power[0] #choose opex scenario €/y
+        
+        profit = (rev_nh3 + rev_power - cost_nh3 - cost_power)/1e6 # M€/y
+        profits.append(profit)
+    
+    best_scenario = np.argmax(profits) + 1
+    
+    optimal_scenarios.append({
+        "Country": country,
+        "Electricity Price": electricity_prices[country],
+        "Optimal Scenario": best_scenario,
+        "Steam diversion": cogen_split[best_scenario - 1]
+    })
+
+df_opt = pd.DataFrame(optimal_scenarios)
+
+plt.figure(figsize=(10,7))
+sns.scatterplot(data=df_opt,
+                y="Electricity Price",
+                x="Steam diversion",
+                s=80)
+plt.ylabel("Electricity Price (\u20AC/MWh)", fontsize=12, fontweight='bold')
+plt.xlabel("Steam diversion (%)", fontsize=12, fontweight='bold')
+# %%
+plt.text(2.2, 55, 'Ammonia selling price: 600\u20AC/t', fontsize = 10, fontweight='bold', bbox=dict(facecolor='white', alpha=0.5))
+
+#plt.title("Maximized profits at upper SMR OPEX scenario for 500 tdp capacity")
+
+for i, country in enumerate(electricity_prices.keys()):
+    plt.text(df_opt["Steam diversion"].iloc[i] + 0.1,  # small x-offset
+             df_opt["Electricity Price"].iloc[i] - 1, # small y-offset
+             country,
+             fontsize=10,   # small font
+             rotation=0,  # optional tilt
+             alpha=0.8)    # slightly transparent
+plt.yticks(range(50,150,10))
+plt.xticks(range(2,8))
+plt.show()
