@@ -1,0 +1,16 @@
+import math
+
+# Source: https://doi.org/10.1016/j.cej.2023.144612
+
+
+R = 8.314 # J/mol-K
+
+# Equilibrium constant
+Ka = math.exp(3.963014 + (4554.634427/T) - 2.315092*math.log(T))
+
+#Prefactor
+K =  1.182979*math.pow(10,15)*math.exp(-168110.6/(R*T))
+
+
+# Reaction rate
+r = K*(math.pow(Ka,2) * math.pow(R2,1) * (math.pow(R1,1.5)/math.pow(P1,1)) - (math.pow(P1,1)/math.pow(R1,1.5)))
